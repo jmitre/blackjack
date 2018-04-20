@@ -15,6 +15,11 @@ func handleConnection(conn net.Conn) {
 	dec.Decode(p)
 	fmt.Printf("Received : %+v\n", p)
 
+	enc := gob.NewEncoder(conn)
+	p2 := &P{2, 2}
+	enc.Encode(p2)
+
+
 	conn.Close()
 }
 
