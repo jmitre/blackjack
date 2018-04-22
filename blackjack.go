@@ -11,26 +11,26 @@ import (
 type client struct {
 	name string
 	id int
+	cash int
 }
 
 func main() {
-
 	clientCount := 0
 
 	allClients := make(map[net.Conn] client)
 
 	newConnections := make(chan net.Conn)
-
 	deadConnections := make(chan net.Conn)
-
 	messages := make(chan string)
 
+	// startup server listening on port 6000
 	server, err := net.Listen("tcp", ":6000")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
+	// accept new connections
 	go func() {
 		for {
 			conn, err := server.Accept()
@@ -44,6 +44,7 @@ func main() {
 
 	for {
 		select {
+		// new connection from a client
 		case conn := <-newConnections:
 			log.Printf("Accepted new client, #%d", clientCount)
 
@@ -61,26 +62,20 @@ func main() {
 			buf := make([]byte, 256)
 			buf,_, _ = reader.ReadLine()
 			c.name = string(buf)
-
-			fmt.Sprintf("name: %s", c.name)
+			c.cash = 100
 
 			allClients[conn] = *c
 			clientCount += 1
+			messages <- fmt.Sprintf("Client %s connected", c.name)
 
-			go func(conn net.Conn, name string) {
-				reader := bufio.NewReader(conn)
-				for {
-					incoming, err := reader.ReadString('\n')
-					if err != nil {
-						break
-					}
-					messages <- fmt.Sprintf("Client %s > %s", name, incoming)
-				}
+			// go on with the game...?
+			// print game state
+			// spike a simple card game
 
-				deadConnections <- conn
 
-			}(conn, allClients[conn].name)
 
+
+		// broadcast a message on the messages channel
 		case message := <-messages:
 			for conn := range allClients {
 
@@ -95,6 +90,7 @@ func main() {
 			log.Printf("New message: %s", message)
 			log.Printf("Broadcast to %d clients", len(allClients))
 
+		// remove clients that have disconnected from the allClients channel
 		case conn := <-deadConnections:
 			log.Printf("Client %s disconnected", allClients[conn].name)
 			delete(allClients, conn)
