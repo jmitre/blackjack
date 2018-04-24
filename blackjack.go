@@ -54,7 +54,6 @@ func shuffle(d Deck) Deck {
 
 func initializeGame() {
 	buildDeck()
-
 }
 
 func main() {
@@ -83,7 +82,6 @@ func main() {
 		}
 	}()
 
-	buildDeck()
 	// Start game if clientCount > 0
 	// Initial setup:
 	//		1. initialize chips for each player
@@ -110,36 +108,23 @@ func main() {
 	// For first MVP: all players have unlimited chips, 1 value chips exists, clients cannot split or double-down,
 	// insurance is not available
 
-
+	//gameStart := false
 	for {
+		//if !gameStart && clientCount > 0 {
+		//	gameStart = true
+		//	initializeGame()
+		//	messagesToClients <- fmt.Sprintln("Game start!")
+		//} else {
+		//	gameStart = false
+		//}
+
 		select {
-		// new connection from a client
-		case conn := <-newConnections:
-			log.Printf("Accepted new client, #%d", clientCount)
+			// new connection from a client
+			case conn := <-newConnections:
+				log.Printf("Accepted new client, #%d", clientCount)
 
-			c := new(client)
-			c.id = clientCount
-
-			go func(conn net.Conn, message string) {
-				_, err := conn.Write([]byte(message))
-
-				if err != nil {
-					deadConnections <- conn
-				}
-			}(conn, "What is your name? ")
-			reader := bufio.NewReader(conn)
-			buf := make([]byte, 256)
-			buf,_, _ = reader.ReadLine()
-			c.name = string(buf)
-			c.chips = 100
-
-			allClients[conn] = *c
-			clientCount += 1
-			messagesToClients <- fmt.Sprintf("Client %s connected", c.name)
-
-		// broadcast a message on the messagesToClients channel
-		case message := <-messagesToClients:
-			for conn := range allClients {
+				c := new(client)
+				c.id = clientCount
 
 				go func(conn net.Conn, message string) {
 					_, err := conn.Write([]byte(message))
@@ -147,15 +132,35 @@ func main() {
 					if err != nil {
 						deadConnections <- conn
 					}
-				}(conn, message)
-			}
-			log.Printf("message: %s", message)
-			log.Printf("Broadcast to %d clients", len(allClients))
+				}(conn, "What is your name? ")
+				reader := bufio.NewReader(conn)
+				buf := make([]byte, 256)
+				buf,_, _ = reader.ReadLine()
+				c.name = string(buf)
+				c.chips = 100
 
-		// remove clients that have disconnected from the allClients channel
-		case conn := <-deadConnections:
-			log.Printf("Client %s disconnected", allClients[conn].name)
-			delete(allClients, conn)
+				allClients[conn] = *c
+				clientCount += 1
+				go func (){ messagesToClients <- fmt.Sprintf("%s has connected", c.name) }()
+
+			// broadcast a message on the messagesToClients channel
+			case message := <-messagesToClients:
+				for conn := range allClients {
+					go func(conn net.Conn, message string) {
+						_, err := conn.Write([]byte(message))
+
+						if err != nil {
+							deadConnections <- conn
+						}
+					}(conn, message)
+				}
+				log.Printf("message: %s", message)
+				log.Printf("Broadcast to %d clients", len(allClients))
+
+			// remove clients that have disconnected from the allClients channel
+			case conn := <-deadConnections:
+				log.Printf("Client %s disconnected", allClients[conn].name)
+				delete(allClients, conn)
 		}
 	}
 }
