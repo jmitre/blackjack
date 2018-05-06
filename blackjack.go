@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"math/rand"
+	"strconv"
 )
 
 var clientCount = 0
@@ -34,25 +35,7 @@ const numDecks = 8
 //		2. setup deck
 // 			a. 8 decks, 52 cards each, shuffled
 //
-// Game Loop (update state to all clients after each state change)
-//		1. all clients place bets
-//		2. burn 1 card
-// 		3. deal 1 to each (down for the dealer, up for all players)
-//		4. deal 1 to each (up for all)
-//			a. check if dealer has blackjack
-//			b. if dealer has Ace, offer insurance
-//		5. iterate through clients and ask for their move
-//			a. hit (until they bust)
-//			b. stay
-//			c. split
-//			d. double-down
-//		6. dealer reveals 2nd card
-//			a. dealer hits if total is < 17
-//		7. deal out winnings/take losses
-//		8. start another round
 
-// For first MVP: all players have unlimited chips, 1 value chips exists, clients cannot split or double-down,
-// insurance is not available
 
 func main() {
 	server := startupServer(6000)
@@ -127,7 +110,38 @@ func runGame() {
 		initializeGame()
 		for {
 			if clientCount > 0 {
+				// Game Loop (update state to all clients after each state change)
+				//		1. all clients place bets
+				//		2. burn 1 card
+				// 		3. deal 1 to each (down for the dealer, up for all players)
+				//		4. deal 1 to each (up for all)
+				//			a. check if dealer has blackjack
+				//			b. if dealer has Ace, offer insurance
+				//		5. iterate through clients and ask for their move
+				//			a. hit (until they bust)
+				//			b. stay
+				//			c. split
+				//			d. double-down
+				//		6. dealer reveals 2nd card
+				//			a. dealer hits if total is < 17
+				//		7. deal out winnings/take losses
+				//		8. start another round
 
+				// For first MVP: all players have unlimited chips, 1 value chips exists, clients cannot split or double-down,
+				// insurance is not available
+				betMap := make(map[int]int)
+				for conn := range allClients {
+					sendMsg(conn, "How much would you like to bet? ")
+					betString := string(read(conn))
+					client := allClients[conn]
+					bet, err := strconv.Atoi(betString)
+					if err != nil {
+						log.Println(err)
+						bet = 0
+					}
+					betMap[client.id] = bet
+					log.Printf("betMap: %s", betMap)
+				}
 			}
 		}
 	}()
@@ -179,7 +193,6 @@ func buildDeck() (deck Deck) {
 	log.Printf("deck: %s", deck)
 	return
 }
-
 
 func shuffle(d Deck) Deck {
 	for i := 1; i < len(d); i++ {
