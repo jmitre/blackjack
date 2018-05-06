@@ -29,13 +29,6 @@ type card struct {
 type Deck []card
 const numDecks = 8
 
-// Start game if clientCount > 0
-// Initial setup:
-//		1. initialize chips for each player
-//		2. setup deck
-// 			a. 8 decks, 52 cards each, shuffled
-//
-
 
 func main() {
 	server := startupServer(6000)
@@ -56,7 +49,7 @@ func manageConnections() {
 }
 
 func deleteDeadConnections(conn net.Conn) {
-	log.Printf("Client %s disconnected", allClients[conn].name)
+	log.Printf("client %s disconnected", allClients[conn].name)
 	delete(allClients, conn)
 }
 
@@ -74,7 +67,7 @@ func broadcastMessage(message string) {
 }
 
 func newConnection(conn net.Conn) {
-	log.Printf("Accepted new client, #%d", clientCount)
+	log.Printf("accepted new client, #%d", clientCount)
 
 	c := new(client)
 	c.id = clientCount
@@ -107,7 +100,7 @@ func sendMsg(conn net.Conn, msg string) {
 
 func runGame() {
 	go func() {
-		initializeGame()
+		deck := buildDeck()
 		for {
 			if clientCount > 0 {
 				// Game Loop (update state to all clients after each state change)
@@ -129,19 +122,28 @@ func runGame() {
 
 				// For first MVP: all players have unlimited chips, 1 value chips exists, clients cannot split or double-down,
 				// insurance is not available
-				betMap := make(map[int]int)
+				bets := make(map[int]int)
+
+				//		1. all clients place bets
 				for conn := range allClients {
+					// TODO: concurrency?
 					sendMsg(conn, "How much would you like to bet? ")
 					betString := string(read(conn))
 					client := allClients[conn]
 					bet, err := strconv.Atoi(betString)
 					if err != nil {
 						log.Println(err)
+						// TODO: maybe handle this better? How can I re-ask for the bet?
 						bet = 0
 					}
-					betMap[client.id] = bet
-					log.Printf("betMap: %s", betMap)
+					bets[client.id] = bet
+					log.Printf("bets: %s", bets)
 				}
+				//		2. burn 1 card
+				// TODO: how to "pop" off an array? How to manage a deck of cards?
+
+				broadcastMessage("Dealer has burned 1 card")
+				log.Printf("deck: %s", deck)
 			}
 		}
 	}()
@@ -170,10 +172,6 @@ func startupServer(port int) net.Listener {
 	return server
 }
 
-func initializeGame() {
-	buildDeck()
-}
-
 func buildDeck() (deck Deck) {
 	values := []string{"2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"}
 	suits := []string{"H", "D", "C", "S"}
@@ -190,7 +188,7 @@ func buildDeck() (deck Deck) {
 		}
 	}
 	deck = shuffle(deck)
-	log.Printf("deck: %s", deck)
+	log.Printf("initial deck: %s", deck)
 	return
 }
 
