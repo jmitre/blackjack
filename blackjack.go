@@ -8,17 +8,19 @@ import (
 	"os"
 	"math/rand"
 	"strconv"
+	"time"
 )
 
-var clientCount = 0
-var allClients = make(map[net.Conn] client)
+var playerCount = 1
+var allPlayers = make(map[net.Conn]player)
 var newConnections = make(chan net.Conn)
 var deadConnections = make(chan net.Conn)
 
-type client struct {
+type player struct {
 	name string
 	id int
 	chips int
+	cards []card
 }
 
 type card struct {
@@ -49,13 +51,14 @@ func manageConnections() {
 }
 
 func deleteDeadConnections(conn net.Conn) {
-	log.Printf("client %s disconnected", allClients[conn].name)
-	delete(allClients, conn)
+	log.Printf("player %s disconnected", allPlayers[conn].name)
+	delete(allPlayers, conn)
 }
 
 func broadcastMessage(message string) {
-	for conn := range allClients {
+	for conn := range allPlayers {
 		go func(conn net.Conn, message string) {
+			message += "\n"
 			_, err := conn.Write([]byte(message))
 
 			if err != nil {
@@ -63,22 +66,23 @@ func broadcastMessage(message string) {
 			}
 		}(conn, message)
 	}
-	log.Printf("message broadcast to %d client(s): %s", len(allClients), message)
+	log.Printf("message broadcast to %d player(s): %s", len(allPlayers), message)
 }
 
 func newConnection(conn net.Conn) {
-	log.Printf("accepted new client, #%d", clientCount)
+	log.Printf("accepted new player, #%d", playerCount)
 
-	c := new(client)
-	c.id = clientCount
+	c := new(player)
+	c.id = playerCount
 	sendMsg(conn, "What is your name? ")
 	c.name = string(read(conn))
 	c.chips = 100
+	c.cards = nil
 
-	allClients[conn] = *c
-	clientCount += 1
+	allPlayers[conn] = *c
+	playerCount += 1
 
-	broadcastMessage(fmt.Sprintf("%s has connected\n", c.name))
+	broadcastMessage(fmt.Sprintf("%s has connected", c.name))
 }
 
 func read(conn net.Conn) []byte {
@@ -90,6 +94,7 @@ func read(conn net.Conn) []byte {
 
 func sendMsg(conn net.Conn, msg string) {
 	go func(conn net.Conn, msg string) {
+		msg += "\n"
 		_, err := conn.Write([]byte(msg))
 
 		if err != nil {
@@ -101,16 +106,17 @@ func sendMsg(conn net.Conn, msg string) {
 func runGame() {
 	go func() {
 		deck := buildDeck()
+		dealer := player{"Dealer", 0, 1000000, nil}
 		for {
-			if clientCount > 0 {
-				// Game Loop (update state to all clients after each state change)
-				//		1. all clients place bets
+			if playerCount > 1 {
+				// Game Loop (update state to all players after each state change)
+				//		1. all players place bets
 				//		2. burn 1 card
 				// 		3. deal 1 to each (down for the dealer, up for all players)
 				//		4. deal 1 to each (up for all)
 				//			a. check if dealer has blackjack
 				//			b. if dealer has Ace, offer insurance
-				//		5. iterate through clients and ask for their move
+				//		5. iterate through players and ask for their move
 				//			a. hit (until they bust)
 				//			b. stay
 				//			c. split
@@ -120,30 +126,37 @@ func runGame() {
 				//		7. deal out winnings/take losses
 				//		8. start another round
 
-				// For first MVP: all players have unlimited chips, 1 value chips exists, clients cannot split or double-down,
+				// For first MVP: all players have unlimited chips, 1 value chips exists, players cannot split or double-down,
 				// insurance is not available
 				bets := make(map[int]int)
 
-				//		1. all clients place bets
-				for conn := range allClients {
-					// TODO: concurrency?
-					sendMsg(conn, "How much would you like to bet? ")
-					betString := string(read(conn))
-					client := allClients[conn]
-					bet, err := strconv.Atoi(betString)
-					if err != nil {
-						log.Println(err)
-						// TODO: maybe handle this better? How can I re-ask for the bet?
-						bet = 0
+				//		1. all players place bets
+				for conn := range allPlayers {
+					for correctInput := false; !correctInput; {
+						sendMsg(conn, "How much would you like to bet? ")
+						betString := string(read(conn))
+						player := allPlayers[conn]
+						bet, err := strconv.Atoi(betString)
+						correctInput = true
+						if err != nil {
+							log.Println(err)
+							sendMsg(conn, "incorrect input")
+							bet = 0
+							correctInput = false
+						}
+						bets[player.id] = bet
+						log.Printf("bets: %s", bets)
 					}
-					bets[client.id] = bet
-					log.Printf("bets: %s", bets)
 				}
-				//		2. burn 1 card
-				// TODO: how to "pop" off an array? How to manage a deck of cards?
 
-				broadcastMessage("Dealer has burned 1 card")
-				log.Printf("deck: %s", deck)
+				//		2. burn 1 card
+				deck = deck[:len(deck)-1]
+				broadcastMessage("dealer has burned 1 card")
+
+				// 		3. deal 1 to each (down for the dealer, up for all players)
+				card := deck[len(deck)-1]
+				dealer.cards = append(dealer.cards, card)
+				log.Printf("dealer has: %s", dealer.cards)
 			}
 		}
 	}()
@@ -194,6 +207,7 @@ func buildDeck() (deck Deck) {
 
 func shuffle(d Deck) Deck {
 	for i := 1; i < len(d); i++ {
+		rand.Seed(time.Now().UTC().UnixNano())
 		r := rand.Intn(i + 1)
 		if i != r {
 			d[r], d[i] = d[i], d[r]
