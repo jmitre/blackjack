@@ -76,7 +76,7 @@ func newConnection(conn net.Conn) {
 	c.id = playerCount
 	sendMsg(conn, "What is your name? ")
 	c.name = string(read(conn))
-	c.chips = 100
+	c.chips = 200
 	c.cards = nil
 
 	allPlayers[conn] = *c
@@ -126,8 +126,9 @@ func runGame() {
 				//		7. deal out winnings/take losses
 				//		8. start another round
 
-				// For first MVP: all players have unlimited chips, 1 value chips exists, players cannot split or double-down,
-				// insurance is not available
+				// For first MVP: players cannot split or double-down, insurance is not available
+				// Future features: counting cards score, GUI,
+
 				bets := make(map[int]int)
 
 				//		1. all players place bets
