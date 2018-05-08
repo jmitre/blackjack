@@ -12,7 +12,7 @@ import (
 )
 
 var playerCount = 1
-var allPlayers = make(map[net.Conn]player)
+var allPlayers = make(map[net.Conn]*player)
 var newConnections = make(chan net.Conn)
 var deadConnections = make(chan net.Conn)
 
@@ -72,17 +72,17 @@ func broadcastMessage(message string) {
 func newConnection(conn net.Conn) {
 	log.Printf("accepted new player, #%d", playerCount)
 
-	c := new(player)
-	c.id = playerCount
+	p := player{}
+	p.id = playerCount
 	sendMsg(conn, "What is your name? ")
-	c.name = string(read(conn))
-	c.chips = 200
-	c.cards = nil
+	p.name = string(read(conn))
+	p.chips = 200
+	p.cards = nil
 
-	allPlayers[conn] = *c
+	allPlayers[conn] = &p
 	playerCount += 1
 
-	broadcastMessage(fmt.Sprintf("%s has connected", c.name))
+	broadcastMessage(fmt.Sprintf("%s has connected", p.name))
 }
 
 func read(conn net.Conn) []byte {
@@ -107,6 +107,7 @@ func runGame() {
 	go func() {
 		deck := buildDeck()
 		dealer := player{"Dealer", 0, 1000000, nil}
+		bets := make(map[int]int)
 		for {
 			if playerCount > 1 {
 				// Game Loop (update state to all players after each state change)
@@ -129,38 +130,77 @@ func runGame() {
 				// For first MVP: players cannot split or double-down, insurance is not available
 				// Future features: counting cards score, GUI,
 
-				bets := make(map[int]int)
 
 				//		1. all players place bets
-				for conn := range allPlayers {
-					for correctInput := false; !correctInput; {
-						sendMsg(conn, "How much would you like to bet? ")
-						betString := string(read(conn))
-						player := allPlayers[conn]
-						bet, err := strconv.Atoi(betString)
-						correctInput = true
-						if err != nil {
-							log.Println(err)
-							sendMsg(conn, "incorrect input")
-							bet = 0
-							correctInput = false
-						}
-						bets[player.id] = bet
-						log.Printf("bets: %s", bets)
-					}
-				}
+				bets = getBets(bets)
 
 				//		2. burn 1 card
 				deck = deck[:len(deck)-1]
 				broadcastMessage("dealer has burned 1 card")
 
 				// 		3. deal 1 to each (down for the dealer, up for all players)
-				card := deck[len(deck)-1]
-				dealer.cards = append(dealer.cards, card)
-				log.Printf("dealer has: %s", dealer.cards)
+				deck = deal(deck, dealer, false)
+
+				//		4. deal 1 to each (up for all)
+				deck = deal(deck, dealer, true)
+
+				//		5. iterate through players and ask for their move
+				//			a. hit (until they bust)
+				//			b. stay
+
 			}
 		}
 	}()
+}
+
+func getBets(bets map[int]int) map[int]int {
+	for conn := range allPlayers {
+		for correctInput := false; !correctInput; {
+			sendMsg(conn, fmt.Sprintf("You have %d chips.", allPlayers[conn].chips))
+			sendMsg(conn, "How much would you like to bet? ")
+			betString := string(read(conn))
+			player := allPlayers[conn]
+			bet, err := strconv.Atoi(betString)
+			correctInput = true
+			if err != nil {
+				log.Println(err)
+				sendMsg(conn, "incorrect input")
+				bet = 0
+				correctInput = false
+			}
+			bets[player.id] = bet
+			log.Printf("bets: %v", bets)
+		}
+	}
+	return bets
+}
+
+func deal(deck Deck, dealer player, printDealer bool) Deck {
+	card := deck[len(deck)-1]
+	dealer.cards = append(dealer.cards, card)
+	deck = deck[:len(deck)-1]
+	log.Printf("dealer has: %v", dealer.cards)
+	for conn := range allPlayers {
+		player := allPlayers[conn]
+		card := deck[len(deck)-1]
+		player.cards = append(player.cards, card)
+		deck = deck[:len(deck)-1]
+		log.Printf("player %s has: %v", player.name, player.cards)
+	}
+	if printDealer {
+		broadcastMessage(fmt.Sprintf("dealer has %v", dealer.cards))
+		for conn := range allPlayers {
+
+			broadcastMessage(fmt.Sprintf("player %s has $v", allPlayers[conn].name, allPlayers[conn].cards))
+		}
+	} else {
+		broadcastMessage(fmt.Sprintf("dealer has %v", dealer.cards[1:]))
+		for conn := range allPlayers {
+			broadcastMessage(fmt.Sprintf("player %s has $v", allPlayers[conn].name, allPlayers[conn].cards))
+		}
+	}
+	log.Printf("deck: %v", deck)
+	return deck
 }
 
 func acceptNewConnections(server net.Listener) {
