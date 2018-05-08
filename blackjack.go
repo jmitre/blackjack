@@ -167,7 +167,7 @@ func runGame() {
 									for conn := range allPlayers {
 										broadcastMessage(fmt.Sprintf("player %s has $v", allPlayers[conn].name, allPlayers[conn].cards))
 									}
-									sum := getSumOfHand(allPlayers[conn])
+									sum := getSumOfHand(player)
 									if sum > 21 {
 										stay = true
 									}
