@@ -147,10 +147,59 @@ func runGame() {
 				//		5. iterate through players and ask for their move
 				//			a. hit (until they bust)
 				//			b. stay
-
+				for conn := range allPlayers {
+					stay := false
+					for stay == false{
+						for correctInput := false; !correctInput; {
+							sendMsg(conn, "Would you like to (h)it or (s)tay? ")
+							move := string(read(conn))
+							correctInput = true
+							if move != "h" && move != "s" {
+								sendMsg(conn, "incorrect input")
+								correctInput = false
+							} else {
+								if move == "h" {
+									player := allPlayers[conn]
+									card := deck[len(deck)-1]
+									player.cards = append(player.cards, card)
+									deck = deck[:len(deck)-1]
+									log.Printf("player %s has: %v", player.name, player.cards)
+									for conn := range allPlayers {
+										broadcastMessage(fmt.Sprintf("player %s has $v", allPlayers[conn].name, allPlayers[conn].cards))
+									}
+									sum := getSumOfHand(allPlayers[conn])
+									if sum > 21 {
+										stay = true
+									}
+								} else {
+									stay = true
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 	}()
+}
+
+func getSumOfHand(p *player) int {
+	sum := 0
+	for i := range p.cards {
+		if p.cards[i].value == "J" || p.cards[i].value == "Q" || p.cards[i].value == "K" {
+			sum += 10
+		} else if p.cards[i].value == "A" {
+
+		} else {
+			val, err := strconv.Atoi(p.cards[i].value)
+			if err != nil {
+				log.Println(err)
+			} else {
+				sum += val
+			}
+		}
+	}
+	return sum
 }
 
 func getBets(bets map[int]int) map[int]int {
@@ -159,7 +208,6 @@ func getBets(bets map[int]int) map[int]int {
 			sendMsg(conn, fmt.Sprintf("You have %d chips.", allPlayers[conn].chips))
 			sendMsg(conn, "How much would you like to bet? ")
 			betString := string(read(conn))
-			player := allPlayers[conn]
 			bet, err := strconv.Atoi(betString)
 			correctInput = true
 			if err != nil {
@@ -168,7 +216,7 @@ func getBets(bets map[int]int) map[int]int {
 				bet = 0
 				correctInput = false
 			}
-			bets[player.id] = bet
+			bets[allPlayers[conn].id] = bet
 			log.Printf("bets: %v", bets)
 		}
 	}
