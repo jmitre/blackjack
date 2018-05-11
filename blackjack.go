@@ -123,72 +123,12 @@ func runGame() {
 				// For first MVP: players cannot split or double-down, insurance is not available
 				// Future features: counting cards score, GUI,
 
-				//		1. all players place bets
 				bets = getBets(bets)
-
-				//		2. burn 1 card
-				deck = deck[:len(deck)-1]
-				broadcastMessage("dealer has burned 1 card")
-
-				// 		3. deal 1 to each (down for the dealer, up for all players)
+				deck = burnCard(deck)
 				deck, dealer = deal(deck, dealer, true)
-
-				//		4. deal 1 to each (up for all)
 				deck, dealer = deal(deck, dealer, false)
-
-				//		5. iterate through players and ask for their move
-				//			a. hit (until they bust)
-				//			b. stay
-				for conn := range allPlayers {
-					stay := false
-					for stay == false {
-						for correctInput := false; !correctInput; {
-							sendMsg(conn, "Would you like to (h)it or (s)tay?")
-							move := string(read(conn))
-							correctInput = true
-							if move != "h" && move != "s" {
-								sendMsg(conn, "incorrect input")
-								correctInput = false
-							} else {
-								player := allPlayers[conn]
-								if move == "h" {
-									card := deck[len(deck)-1]
-									player.cards = append(player.cards, card)
-									deck = deck[:len(deck)-1]
-									broadcastMessage(fmt.Sprintf("%s has\t%v", player.name, player.cards))
-									sum := getSumOfHand(player)
-									log.Printf("%s has handSum: %v", player.name, sum)
-									if sum > 21 {
-										broadcastMessage(fmt.Sprintf("%s bust", player.name))
-										results[player.name] = 0
-										stay = true
-									} else {
-										results[player.name] = sum
-									}
-								} else {
-									sum := getSumOfHand(player)
-									results[player.name] = sum
-									stay = true
-								}
-							}
-						}
-					}
-				}
-
-				//		6. dealer reveals 2nd card
-				//			a. dealer hits if total is < 17
-				broadcastMessage(fmt.Sprintf("dealer has\t%v", dealer.cards))
-				sum := getSumOfHand(&dealer)
-				for sum < 17 {
-					card := deck[len(deck)-1]
-					dealer.cards = append(dealer.cards, card)
-					deck = deck[:len(deck)-1]
-					broadcastMessage(fmt.Sprintf("dealer has\t%v", dealer.cards))
-					sum = getSumOfHand(&dealer)
-				}
-				results[dealer.name] = sum
-				log.Printf("dealer has handSum: %v", sum)
-				log.Printf("results map: %v\n", results)
+				deck, results = playersTurn(deck, results)
+				dealerTurn(dealer, deck, results)
 
 				//		7. deal out winnings/take losses
 				if results[dealer.name] > 21 {
@@ -214,6 +154,66 @@ func runGame() {
 	}()
 }
 
+func burnCard(deck Deck) Deck {
+	deck = deck[:len(deck)-1]
+	broadcastMessage("dealer has burned 1 card")
+	return deck
+}
+
+func playersTurn(deck Deck, results map[string]int) (Deck, map[string]int) {
+	for conn := range allPlayers {
+		stay := false
+		for stay == false {
+			for correctInput := false; !correctInput; {
+				sendMsg(conn, "Would you like to (h)it or (s)tay?")
+				move := string(read(conn))
+				correctInput = true
+				if move != "h" && move != "s" {
+					sendMsg(conn, "incorrect input")
+					correctInput = false
+				} else {
+					player := allPlayers[conn]
+					if move == "h" {
+						card := deck[len(deck)-1]
+						player.cards = append(player.cards, card)
+						deck = deck[:len(deck)-1]
+						broadcastMessage(fmt.Sprintf("%s has\t%v", player.name, player.cards))
+						sum := getSumOfHand(player)
+						log.Printf("%s has handSum: %v", player.name, sum)
+						if sum > 21 {
+							broadcastMessage(fmt.Sprintf("%s bust", player.name))
+							results[player.name] = 0
+							stay = true
+						} else {
+							results[player.name] = sum
+						}
+					} else {
+						sum := getSumOfHand(player)
+						results[player.name] = sum
+						stay = true
+					}
+				}
+			}
+		}
+	}
+	return deck, results
+}
+
+func dealerTurn(dealer player, deck Deck, results map[string]int) {
+	broadcastMessage(fmt.Sprintf("dealer has\t%v", dealer.cards))
+	sum := getSumOfHand(&dealer)
+	for sum < 17 {
+		card := deck[len(deck)-1]
+		dealer.cards = append(dealer.cards, card)
+		deck = deck[:len(deck)-1]
+		broadcastMessage(fmt.Sprintf("dealer has\t%v", dealer.cards))
+		sum = getSumOfHand(&dealer)
+	}
+	results[dealer.name] = sum
+	log.Printf("dealer has handSum: %v", sum)
+	log.Printf("results map: %v\n", results)
+}
+
 func getSumOfHand(p *player) int {
 	sum := 0
 	numAces := 0
@@ -231,10 +231,12 @@ func getSumOfHand(p *player) int {
 			}
 		}
 	}
-	if sum + 11 + (numAces - 1) > 21 {
-		sum += numAces
-	} else {
-		sum += 11 + (numAces - 1)
+	if numAces > 0 {
+		if sum+11+(numAces-1) > 21 {
+			sum += numAces
+		} else {
+			sum += 11 + (numAces - 1)
+		}
 	}
 	return sum
 }
