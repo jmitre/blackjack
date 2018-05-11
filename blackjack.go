@@ -128,12 +128,9 @@ func runGame() {
 				deck, dealer = deal(deck, dealer, true)
 				deck, dealer = deal(deck, dealer, false)
 				deck, results = playersTurn(deck, results)
-				dealerTurn(dealer, deck, results)
+				dealer, deck, results = dealerTurn(dealer, deck, results)
 
 				//		7. deal out winnings/take losses
-				if results[dealer.name] > 21 {
-					broadcastMessage("dealer bust")
-				}
 				broadcastMessage(fmt.Sprintf("results: %v", results))
 
 				//		8. clear and start another round
@@ -181,8 +178,8 @@ func playersTurn(deck Deck, results map[string]int) (Deck, map[string]int) {
 						sum := getSumOfHand(player)
 						log.Printf("%s has handSum: %v", player.name, sum)
 						if sum > 21 {
-							broadcastMessage(fmt.Sprintf("%s bust", player.name))
 							results[player.name] = 0
+							broadcastMessage(fmt.Sprintf("%s bust", player.name))
 							stay = true
 						} else {
 							results[player.name] = sum
@@ -199,7 +196,7 @@ func playersTurn(deck Deck, results map[string]int) (Deck, map[string]int) {
 	return deck, results
 }
 
-func dealerTurn(dealer player, deck Deck, results map[string]int) {
+func dealerTurn(dealer player, deck Deck, results map[string]int) (player, Deck, map[string]int){
 	broadcastMessage(fmt.Sprintf("dealer has\t%v", dealer.cards))
 	sum := getSumOfHand(&dealer)
 	for sum < 17 {
@@ -209,9 +206,14 @@ func dealerTurn(dealer player, deck Deck, results map[string]int) {
 		broadcastMessage(fmt.Sprintf("dealer has\t%v", dealer.cards))
 		sum = getSumOfHand(&dealer)
 	}
-	results[dealer.name] = sum
 	log.Printf("dealer has handSum: %v", sum)
-	log.Printf("results map: %v\n", results)
+	if sum > 21 {
+		results[dealer.name] = 0
+		broadcastMessage("dealer bust")
+	} else {
+		results[dealer.name] = sum
+	}
+	return dealer, deck, results
 }
 
 func getSumOfHand(p *player) int {
