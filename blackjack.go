@@ -15,7 +15,6 @@ var playerCount = 1
 var allPlayers = make(map[net.Conn]*player)
 var newConnections = make(chan net.Conn)
 var deadConnections = make(chan net.Conn)
-var messages = make(chan string)
 
 type player struct {
 	name string
@@ -52,7 +51,6 @@ func manageConnections() {
 }
 
 func deleteDeadConnections(conn net.Conn) {
-	broadcastMessage(fmt.Sprintf("%s disconnected", allPlayers[conn].name))
 	delete(allPlayers, conn)
 }
 
@@ -94,7 +92,6 @@ func sendMsg(conn net.Conn, msg string) {
 		if err != nil {
 			deadConnections <- conn
 		}
-		messages <- msg
 	}(conn, msg)
 }
 
@@ -158,7 +155,7 @@ func runGame() {
 									card := deck[len(deck)-1]
 									player.cards = append(player.cards, card)
 									deck = deck[:len(deck)-1]
-									broadcastMessage(fmt.Sprintf("%s has %v", player.name, player.cards))
+									broadcastMessage(fmt.Sprintf("%s has\t%v", player.name, player.cards))
 									sum := getSumOfHand(player)
 									log.Printf("%s has handSum: %v", player.name, sum)
 									if sum > 21 {
@@ -180,13 +177,13 @@ func runGame() {
 
 				//		6. dealer reveals 2nd card
 				//			a. dealer hits if total is < 17
-				broadcastMessage(fmt.Sprintf("dealer has %v", dealer.cards))
+				broadcastMessage(fmt.Sprintf("dealer has\t%v", dealer.cards))
 				sum := getSumOfHand(&dealer)
 				for sum < 17 {
 					card := deck[len(deck)-1]
 					dealer.cards = append(dealer.cards, card)
 					deck = deck[:len(deck)-1]
-					broadcastMessage(fmt.Sprintf("dealer has %v", dealer.cards))
+					broadcastMessage(fmt.Sprintf("dealer has\t%v", dealer.cards))
 					sum = getSumOfHand(&dealer)
 				}
 				results[dealer.name] = sum
@@ -197,6 +194,7 @@ func runGame() {
 				if results[dealer.name] > 21 {
 					broadcastMessage("dealer bust")
 				}
+				broadcastMessage(fmt.Sprintf("results: %v", results))
 
 				//		8. clear and start another round
 				dealer.cards = nil
@@ -244,7 +242,7 @@ func getSumOfHand(p *player) int {
 func getBets(bets map[int]int) map[int]int {
 	for conn := range allPlayers {
 		for correctInput := false; !correctInput; {
-			sendMsg(conn, fmt.Sprintf("You have %d chips.", allPlayers[conn].chips))
+			sendMsg(conn, fmt.Sprintf("Your chips:\t%d", allPlayers[conn].chips))
 			sendMsg(conn, "How much would you like to bet? ")
 			betString := string(read(conn))
 			bet, err := strconv.Atoi(betString)
@@ -275,14 +273,14 @@ func deal(deck Deck, dealer player, printDealer bool) (Deck, player) {
 		log.Printf("%s has: %v", player.name, player.cards)
 	}
 	if printDealer {
-		broadcastMessage(fmt.Sprintf("dealer has %v", dealer.cards[0]))
+		broadcastMessage(fmt.Sprintf("dealer has\t%v", dealer.cards[0]))
 		for conn := range allPlayers {
 
-			broadcastMessage(fmt.Sprintf("%s has %v", allPlayers[conn].name, allPlayers[conn].cards))
+			broadcastMessage(fmt.Sprintf("%s has\t%v", allPlayers[conn].name, allPlayers[conn].cards))
 		}
 	} else {
 		for conn := range allPlayers {
-			broadcastMessage(fmt.Sprintf("%s has %v", allPlayers[conn].name, allPlayers[conn].cards))
+			broadcastMessage(fmt.Sprintf("%s has\t%v", allPlayers[conn].name, allPlayers[conn].cards))
 		}
 	}
 	log.Printf("deck: %v", deck)
@@ -342,5 +340,3 @@ func shuffle(d Deck) Deck {
 	}
 	return d
 }
-
-
