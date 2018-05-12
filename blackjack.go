@@ -238,16 +238,16 @@ func dealerTurn(dealer player, deck Deck, results map[string]int) (player, Deck,
 	return dealer, deck, results
 }
 
-func getSumOfHand(p *player) int {
+func getSumOfHand(player *player) int {
 	sum := 0
 	numAces := 0
-	for i := range p.cards {
-		if p.cards[i].value == "J" || p.cards[i].value == "Q" || p.cards[i].value == "K" {
+	for i := range player.cards {
+		if player.cards[i].value == "J" || player.cards[i].value == "Q" || player.cards[i].value == "K" {
 			sum += 10
-		} else if p.cards[i].value == "A" {
+		} else if player.cards[i].value == "A" {
 			numAces++
 		} else {
-			val, err := strconv.Atoi(p.cards[i].value)
+			val, err := strconv.Atoi(player.cards[i].value)
 			if err != nil {
 				log.Println(err)
 			} else {
@@ -268,7 +268,7 @@ func getSumOfHand(p *player) int {
 func getBets(bets map[int]int) map[int]int {
 	for conn := range allPlayers {
 		for correctInput := false; !correctInput; {
-			broadcastMessage(fmt.Sprintf("%s chips:\t%d", allPlayers[conn].name, allPlayers[conn].chips))
+			broadcastMessage(fmt.Sprintf("%s's chips:\t%d", allPlayers[conn].name, allPlayers[conn].chips))
 			sendMsg(conn, "How much would you like to bet? ")
 			betString := string(read(conn))
 			bet, err := strconv.Atoi(betString)
@@ -280,10 +280,10 @@ func getBets(bets map[int]int) map[int]int {
 				bet = 0
 				correctInput = false
 			}
-
 			bets[allPlayers[conn].id] = bet
 			log.Printf("bets: %v", bets)
 		}
+		broadcastMessage(fmt.Sprintf("%s bet\t%v", allPlayers[conn].name, bets[allPlayers[conn].id]))
 	}
 	return bets
 }
