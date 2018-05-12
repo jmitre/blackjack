@@ -15,6 +15,7 @@ var playerCount = 1
 var allPlayers = make(map[net.Conn]*player)
 var newConnections = make(chan net.Conn)
 var deadConnections = make(chan net.Conn)
+var success = make(chan bool)
 
 type player struct {
 	name string
@@ -91,8 +92,11 @@ func sendMsg(conn net.Conn, msg string) {
 
 		if err != nil {
 			deadConnections <- conn
+			success <-false
 		}
+		success <- true
 	}(conn, msg)
+	<- success
 }
 
 func runGame() {
@@ -132,6 +136,27 @@ func runGame() {
 
 				//		7. deal out winnings/take losses
 				broadcastMessage(fmt.Sprintf("results: %v", results))
+				for conn := range allPlayers {
+					player := allPlayers[conn]
+					if results[player.name] == 0 {
+						player.chips -= bets[player.id]
+					} else {
+						if results[dealer.name] == results[player.name] {
+							broadcastMessage(fmt.Sprintf("%s and %s push", dealer.name, player.name))
+						} else if results[dealer.name] > results[player.name] {
+							broadcastMessage(fmt.Sprintf("%s lost", player.name))
+							player.chips -= bets[player.id]
+							if player.chips <= 0 {
+								broadcastMessage(fmt.Sprintf("%s is out of chips", player.name))
+								deadConnections <- conn
+								//player.chips = 0
+							}
+						} else {
+							broadcastMessage(fmt.Sprintf("%s won", player.name))
+							player.chips += bets[player.id]
+						}
+					}
+				}
 
 				//		8. clear and start another round
 				dealer.cards = nil
@@ -246,17 +271,19 @@ func getSumOfHand(p *player) int {
 func getBets(bets map[int]int) map[int]int {
 	for conn := range allPlayers {
 		for correctInput := false; !correctInput; {
-			sendMsg(conn, fmt.Sprintf("Your chips:\t%d", allPlayers[conn].chips))
+			broadcastMessage(fmt.Sprintf("%s chips:\t%d", allPlayers[conn].name, allPlayers[conn].chips))
 			sendMsg(conn, "How much would you like to bet? ")
 			betString := string(read(conn))
 			bet, err := strconv.Atoi(betString)
 			correctInput = true
-			if err != nil {
+
+			if err != nil || bet < 0 || bet > allPlayers[conn].chips {
 				log.Println(err)
 				sendMsg(conn, "incorrect input")
 				bet = 0
 				correctInput = false
 			}
+
 			bets[allPlayers[conn].id] = bet
 			log.Printf("bets: %v", bets)
 		}
