@@ -46,13 +46,10 @@ func manageConnections() {
 		case conn := <-newConnections:
 			newConnection(conn)
 		case conn := <-deadConnections:
-			deleteDeadConnections(conn)
+			delete(allPlayers, conn)
+			conn.Close()
 		}
 	}
-}
-
-func deleteDeadConnections(conn net.Conn) {
-	delete(allPlayers, conn)
 }
 
 func broadcastMessage(msg string) {
