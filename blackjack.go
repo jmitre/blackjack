@@ -4,39 +4,67 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"os"
-	"math/rand"
 	"strconv"
+	"sync"
 	"time"
 )
 
-var playerCount = 1
+var players *Players
 var allPlayers = make(map[net.Conn]*player)
 var newConnections = make(chan net.Conn)
 var deadConnections = make(chan net.Conn)
 var success = make(chan bool)
 
 type player struct {
-	name string
-	id int
-	chips int
-	cards []card
+	name        string
+	id          int
+	chips       int
+	cards       []card
+	isConnected bool
 }
 
 type card struct {
 	value string
-	suit string
+	suit  string
+}
+
+type Players struct {
+	count int
+	m     *sync.Mutex
+}
+
+func (p Players) GetPlayerCount() int {
+	p.m.Lock()
+	count := p.count
+	p.m.Unlock()
+
+	return count
+}
+
+func (p *Players) AddPlayer() {
+	p.m.Lock()
+	p.count++
+	p.m.Unlock()
+}
+
+func (p *Players) RemovePlayer() {
+	p.m.Lock()
+	p.count--
+	p.m.Unlock()
 }
 
 type Deck []card
+
 const numDecks = 8
 
-
 func main() {
+	players = &Players{1, &sync.Mutex{}}
 	server := startupServer(6000)
 	acceptNewConnections(server)
-	runGame()
+	go runGame()
 	manageConnections()
 }
 
@@ -46,7 +74,7 @@ func manageConnections() {
 		case conn := <-newConnections:
 			newConnection(conn)
 		case conn := <-deadConnections:
-			delete(allPlayers, conn)
+			allPlayers[conn].isConnected = false // Use mutex to protect variable
 			conn.Close()
 		}
 	}
@@ -60,17 +88,18 @@ func broadcastMessage(msg string) {
 }
 
 func newConnection(conn net.Conn) {
-	log.Printf("accepted new player, #%d", playerCount)
+	log.Printf("accepted new player, #%d", players.GetPlayerCount())
 
 	p := player{}
-	p.id = playerCount
+	p.id = players.GetPlayerCount()
 	sendMsg(conn, "What is your name?")
 	p.name = string(read(conn))
 	p.chips = 200
 	p.cards = nil
+	p.isConnected = true
 
 	allPlayers[conn] = &p
-	playerCount += 1
+	players.AddPlayer()
 
 	broadcastMessage(fmt.Sprintf("%s has connected", p.name))
 }
@@ -89,88 +118,86 @@ func sendMsg(conn net.Conn, msg string) {
 
 		if err != nil {
 			deadConnections <- conn
-			success <-false
+			success <- false
 		}
 		success <- true
 	}(conn, msg)
-	<- success
+	<-success
 }
 
 func runGame() {
-	go func() {
-		deck := buildDeck()
-		dealer := player{"Dealer", 0, 1000000, nil}
-		bets := make(map[int]int)
-		results := make(map[string] int)
-		for {
-			if playerCount > 1 {
-				// Game Loop (update state to all players after each state change)
-				//		1. all players place bets
-				//		2. burn 1 card
-				// 		3. deal 1 to each (down for the dealer, up for all players)
-				//		4. deal 1 to each (up for all)
-				//			a. check if dealer has blackjack
-				//			b. if dealer has Ace, offer insurance
-				//		5. iterate through players and ask for their move
-				//			a. hit (until they bust)
-				//			b. stay
-				//			c. split
-				//			d. double-down
-				//		6. dealer reveals 2nd card
-				//			a. dealer hits if total is < 17
-				//		7. deal out winnings/take losses
-				//		8. clear and start another round
+	deck := buildDeck()
+	dealer := player{"Dealer", 0, 1000000, nil, true}
+	bets := make(map[int]int)
+	results := make(map[string]int)
+	for {
+		if players.GetPlayerCount() > 1 {
+			// Game Loop (update state to all players after each state change)
+			//		1. all players place bets
+			//		2. burn 1 card
+			// 		3. deal 1 to each (down for the dealer, up for all players)
+			//		4. deal 1 to each (up for all)
+			//			a. check if dealer has blackjack
+			//			b. if dealer has Ace, offer insurance
+			//		5. iterate through players and ask for their move
+			//			a. hit (until they bust)
+			//			b. stay
+			//			c. split
+			//			d. double-down
+			//		6. dealer reveals 2nd card
+			//			a. dealer hits if total is < 17
+			//		7. deal out winnings/take losses
+			//		8. clear and start another round
 
-				// For first MVP: players cannot split or double-down, insurance is not available
-				// Future features: counting cards score, GUI,
+			// For first MVP: players cannot split or double-down, insurance is not available
+			// Future features: counting cards score, GUI,
 
-				bets = getBets(bets)
-				deck = burnCard(deck)
-				deck, dealer = deal(deck, dealer, true)
-				deck, dealer = deal(deck, dealer, false)
-				deck, results = playersTurn(deck, results)
-				dealer, deck, results = dealerTurn(dealer, deck, results)
+			bets = getBets(bets)
+			deck = burnCard(deck)
+			deck, dealer = deal(deck, dealer, true)
+			deck, dealer = deal(deck, dealer, false)
+			deck, results = playersTurn(deck, results)
+			dealer, deck, results = dealerTurn(dealer, deck, results)
 
-				//		7. deal out winnings/take losses
-				broadcastMessage(fmt.Sprintf("results: %v", results))
-				for conn := range allPlayers {
-					player := allPlayers[conn]
-					if results[player.name] == 0 {
+			//		7. deal out winnings/take losses
+			broadcastMessage(fmt.Sprintf("results: %v", results))
+			for conn := range allPlayers {
+				player := allPlayers[conn]
+				if results[player.name] == 0 {
+					player.chips -= bets[player.id]
+				} else {
+					if results[dealer.name] == results[player.name] {
+						broadcastMessage(fmt.Sprintf("%s and %s push", dealer.name, player.name))
+					} else if results[dealer.name] > results[player.name] {
+						broadcastMessage(fmt.Sprintf("%s lost", player.name))
 						player.chips -= bets[player.id]
-					} else {
-						if results[dealer.name] == results[player.name] {
-							broadcastMessage(fmt.Sprintf("%s and %s push", dealer.name, player.name))
-						} else if results[dealer.name] > results[player.name] {
-							broadcastMessage(fmt.Sprintf("%s lost", player.name))
-							player.chips -= bets[player.id]
-							if player.chips <= 0 {
-								broadcastMessage(fmt.Sprintf("%s is out of chips", player.name))
-								deadConnections <- conn
-								//player.chips = 0
-							}
-						} else {
-							broadcastMessage(fmt.Sprintf("%s won", player.name))
-							player.chips += bets[player.id]
+						if player.chips <= 0 {
+							broadcastMessage(fmt.Sprintf("%s is out of chips", player.name))
+							deadConnections <- conn
+							//player.chips = 0
 						}
+					} else {
+						broadcastMessage(fmt.Sprintf("%s won", player.name))
+						player.chips += bets[player.id]
 					}
 				}
+			}
 
-				//		8. clear and start another round
-				dealer.cards = nil
-				for conn := range allPlayers {
-					allPlayers[conn].cards = nil
-				}
+			//		8. clear and start another round
+			dealer.cards = nil
+			for conn := range allPlayers {
+				allPlayers[conn].cards = nil
+			}
 
-				for i := range bets {
-					delete(bets, i)
-				}
+			for i := range bets {
+				delete(bets, i)
+			}
 
-				for i := range results {
-					delete(results, i)
-				}
+			for i := range results {
+				delete(results, i)
 			}
 		}
-	}()
+	}
 }
 
 func burnCard(deck Deck) Deck {
@@ -218,7 +245,7 @@ func playersTurn(deck Deck, results map[string]int) (Deck, map[string]int) {
 	return deck, results
 }
 
-func dealerTurn(dealer player, deck Deck, results map[string]int) (player, Deck, map[string]int){
+func dealerTurn(dealer player, deck Deck, results map[string]int) (player, Deck, map[string]int) {
 	broadcastMessage(fmt.Sprintf("dealer has\t%v", dealer.cards))
 	sum := getSumOfHand(&dealer)
 	for sum < 17 {
@@ -270,7 +297,8 @@ func getBets(bets map[int]int) map[int]int {
 		for correctInput := false; !correctInput; {
 			broadcastMessage(fmt.Sprintf("%s's chips:\t%d", allPlayers[conn].name, allPlayers[conn].chips))
 			sendMsg(conn, "How much would you like to bet? ")
-			betString := string(read(conn))
+			betString := readWithTimeOut(conn)
+			log.Printf("Read bet value %s for player %s", betString, allPlayers[conn].name)
 			bet, err := strconv.Atoi(betString)
 			correctInput = true
 
@@ -280,12 +308,21 @@ func getBets(bets map[int]int) map[int]int {
 				bet = 0
 				correctInput = false
 			}
+			if betString == "" { // If the user timedout
+				break
+			}
 			bets[allPlayers[conn].id] = bet
 			log.Printf("bets: %v", bets)
 		}
 		broadcastMessage(fmt.Sprintf("%s bet\t%v", allPlayers[conn].name, bets[allPlayers[conn].id]))
 	}
 	return bets
+}
+
+func readWithTimeOut(conn net.Conn) string {
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	defer conn.SetReadDeadline(time.Time{})
+	return string(read(conn))
 }
 
 func deal(deck Deck, dealer player, printDealer bool) (Deck, player) {
