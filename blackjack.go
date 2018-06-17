@@ -74,6 +74,10 @@ func manageConnections() {
 		case conn := <-newConnections:
 			newConnection(conn)
 		case conn := <-deadConnections:
+			if allPlayers[conn] == nil {
+				log.Printf("Player already disconnected")
+				continue
+			}
 			allPlayers[conn].isConnected = false // Use mutex to protect variable
 			conn.Close()
 		}
@@ -133,7 +137,7 @@ func runGame() {
 	log.Println("Initialized game")
 	for {
 		log.Println("Waiting for players to start round")
-		log.Printf("Current player count: %s", players.GetPlayerCount())
+		log.Printf("Current player count: %d", players.GetPlayerCount())
 		if players.GetPlayerCount() > 1 {
 			log.Println("Starting round")
 			// Game Loop (update state to all players after each state change)
@@ -435,6 +439,7 @@ func kickDisconnects() {
 	for conn, player := range allPlayers {
 		if player.isConnected == false {
 			delete(allPlayers, conn)
+			players.RemovePlayer()
 		}
 
 	}
