@@ -130,8 +130,12 @@ func runGame() {
 	dealer := player{"Dealer", 0, 1000000, nil, true}
 	bets := make(map[int]int)
 	results := make(map[string]int)
+	log.Println("Initialized game")
 	for {
+		log.Println("Waiting for players to start round")
+		log.Printf("Current player count: %s", players.GetPlayerCount())
 		if players.GetPlayerCount() > 1 {
+			log.Println("Starting round")
 			// Game Loop (update state to all players after each state change)
 			//		1. all players place bets
 			//		2. burn 1 card
@@ -152,14 +156,21 @@ func runGame() {
 			// For first MVP: players cannot split or double-down, insurance is not available
 			// Future features: counting cards score, GUI,
 
+			log.Println("Getting player bets")
 			bets = getBets(bets)
+			log.Println("Dealer burning card")
 			deck = burnCard(deck)
+			log.Println("Dealing first card")
 			deck, dealer = deal(deck, dealer, true)
+			log.Println("Dealing second card")
 			deck, dealer = deal(deck, dealer, false)
+			log.Println("Starting players turns")
 			deck, results = playersTurn(deck, results)
+			log.Println("Starting dealers turn")
 			dealer, deck, results = dealerTurn(dealer, deck, results)
 
 			//		7. deal out winnings/take losses
+			log.Println("Broadcasting game results")
 			broadcastMessage(fmt.Sprintf("results: %v", results))
 			for conn := range allPlayers {
 				player := allPlayers[conn]
@@ -182,6 +193,7 @@ func runGame() {
 					}
 				}
 			}
+			log.Println("Cleaning up for next round")
 
 			//		8. clear and start another round
 			dealer.cards = nil
@@ -196,6 +208,7 @@ func runGame() {
 			for i := range results {
 				delete(results, i)
 			}
+			kickDisconnects()
 		}
 	}
 }
@@ -212,11 +225,21 @@ func playersTurn(deck Deck, results map[string]int) (Deck, map[string]int) {
 		for stay == false {
 			for correctInput := false; !correctInput; {
 				sendMsg(conn, "Would you like to (h)it or (s)tay?")
-				move := string(read(conn))
+				move := readWithTimeOut(conn)
 				correctInput = true
 				if move != "h" && move != "s" {
 					sendMsg(conn, "incorrect input")
 					correctInput = false
+					if move == "" {
+						sendMsg(conn, "failed to respond, staying")
+
+						player := allPlayers[conn]
+						sum := getSumOfHand(player)
+						results[player.name] = sum
+						stay = true
+						correctInput = true
+
+					}
 				} else {
 					player := allPlayers[conn]
 					if move == "h" {
@@ -320,7 +343,7 @@ func getBets(bets map[int]int) map[int]int {
 }
 
 func readWithTimeOut(conn net.Conn) string {
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	defer conn.SetReadDeadline(time.Time{})
 	return string(read(conn))
 }
@@ -331,7 +354,9 @@ func deal(deck Deck, dealer player, printDealer bool) (Deck, player) {
 	deck = deck[:len(deck)-1]
 	log.Printf("dealer has: %v", dealer.cards)
 	for conn := range allPlayers {
+		log.Printf("Getting Player")
 		player := allPlayers[conn]
+		log.Printf("Got Player")
 		card := deck[len(deck)-1]
 		player.cards = append(player.cards, card)
 		deck = deck[:len(deck)-1]
@@ -404,4 +429,14 @@ func shuffle(d Deck) Deck {
 		}
 	}
 	return d
+}
+
+func kickDisconnects() {
+	for conn, player := range allPlayers {
+		if player.isConnected == false {
+			delete(allPlayers, conn)
+		}
+
+	}
+
 }
